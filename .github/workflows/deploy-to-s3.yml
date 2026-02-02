@@ -56,7 +56,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4.0.2
         with:
           aws-region: ${{ vars.AWS_REGION }}
-          role-to-assume: arn:aws:iam::881490093474:role/SteinitzWebsite_S3Deployer # this will be the ARN of the role you created in the "Creating a Role for deployment" step.
+          role-to-assume: arn:aws:iam::881490093474:role/welgileaks-github-deployment # this will be the ARN of the role you created in the "Creating a Role for deployment" step.
           role-session-name: GithubActions-WelgiLeaksWebsite
           mask-aws-account-id: true
       - name: "Sync HTML files with short cache"
