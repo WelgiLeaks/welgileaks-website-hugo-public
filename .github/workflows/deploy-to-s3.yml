@@ -1,0 +1,79 @@
+# Workflow for building and deploying a Hugo site to S3
+name: Deploy Hugo site to S3
+
+on:
+  # Runs on 'git push', targeting the default branch
+  push:
+    branches: ["main"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to S3
+permissions:
+  contents: read
+  id-token: write
+
+# Default to bash
+defaults:
+  run:
+    shell: bash
+
+jobs:
+# Deployment job
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Checks-out this repository under $GITHUB_WORKSPACE, so the job can access it
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+      - name: "Abort if any trace of development build is detected (it should be a staging build)."
+        run: |
+          num_occurrences=$((grep -r 'localhost:1313' * || true) | wc -l)
+          if [ "$num_occurrences" -gt "0" ]; then
+            echo "::error::Development build detected. To fix this, commit to public dir/repo after issuing 'hugo -e staging' command."
+            exit 1
+          fi
+      - name: "Replace 'staging' Google tags with 'production' equivalents"
+        run: grep -Ilr '' . | xargs sed -i~ 's|B3ECKP96EL|DPHXLK5VEW|g'
+      - name: "Replace 'staging' URL with 'production' equivalent"
+        run: grep -Ilr '' . | xargs sed -i~ 's|test.welgileaks.co.za|www.welgileaks.co.za|g'
+      - name: "Replace 'staging' login callback URL with 'production' equivalent"
+        run: grep -Ilr '' . | xargs sed -i~ 's|/auth/callback/test|/auth/callback/www|g'
+      - name: "Allow indexing by search engines"
+        run: find . -type f -name "robots.txt" -exec sed -i~ 's/Disallow:.*/Disallow:/g' {} '+'
+      - name: "Remove ~ suffixed temp files created as part of the above SED operation."
+        run: find . -name "*~" -exec rm {} +
+      - name: Remove hidden files and dirs recursively
+        run: find . -name '.[a-zA-Z0-9]*' | xargs rm -fr
+      - name: "Remove other unneeded files"
+        run: rm CNAME
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: arn:aws:iam::881490093474:role/SteinitzWebsite_S3Deployer # this will be the ARN of the role you created in the "Creating a Role for deployment" step.
+          role-session-name: GithubActions-WelgiLeaksWebsite
+          mask-aws-account-id: true
+      - name: "Sync HTML files with short cache"
+        run: |
+          aws s3 sync ./ s3://${{ vars.BUCKET_NAME }} \
+            --delete \
+            --exclude "*" \
+            --include "*.html" \
+            --cache-control "max-age=60, must-revalidate"
+
+      - name: "Sync other assets with long cache"
+        run: |
+          aws s3 sync ./ s3://${{ vars.BUCKET_NAME }} \
+            --delete \
+            --exclude "*.html" \
+            --cache-control "max-age=31536000, public, immutable"
+
+            #- name: "Cloudfront Invalidation"
+            #id: flushcache
+            #run: aws cloudfront create-invalidation --distribution-id ${{ vars.CF_DISTRIBUTION_ID }} --paths "/*"
